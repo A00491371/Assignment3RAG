@@ -1,88 +1,89 @@
-# Assignment 2: Document Q&A with RAG
+# Assignment 3: Secure & Production-Ready RAG System
 
-A Retrieval-Augmented Generation (RAG) system built with **LangChain**, **ChromaDB**, and **Google Gemini 2.5 Flash** that answers questions based on PDF document content.
+This project is an evolution of the Assignment 2 RAG system, enhanced with production-grade security layers, guardrails, and automated evaluation. It uses **LangChain**, **ChromaDB**, and **Google Gemini 2.5 Flash** to provide a secure Q&A experience based on the Nova Scotia Driver's Handbook.
 
-## Features
+## New Features (Assignment 3)
 
-- **PDF Document Loading** — Loads and processes PDFs from the `data/` directory
-- **Text Splitting** — Uses `RecursiveCharacterTextSplitter` (chunk_size=1000, chunk_overlap=200)
-- **Vector Store** — ChromaDB for persistent vector storage
-- **FREE Embeddings** — HuggingFace `sentence-transformers/all-MiniLM-L6-v2`
-- **RetrievalQA Chain** — LangChain `RetrievalQA` chain connecting retriever with LLM
-- **LLM** — Google Gemini 2.5 Flash via `google-genai` SDK
-- **Interactive Q&A** — Command-line interface for asking questions
-- **Source Citations** — Shows relevant source documents with page numbers
+### 1. Robust Guardrails
+The system implements multiple layers of input and output validation to ensure safety and reliability:
+- **Input Validation**: Rejects queries over 500 characters and filters out-of-topic questions.
+- **PII Protection**: Automatically detects and redacts phone numbers, emails, and license plates.
+- **Output Controls**: Enforces word limits on responses and refuses to answer when retrieval confidence is too low ($top\_score < 0.1$).
+- **Structured Error Handling**: Returns specific error codes like `QUERY_TOO_LONG`, `OFF_TOPIC`, `PII_DETECTED`, etc.
+- **Execution Limits**: Implemented a 30-second timeout for LLM generation to prevent runaway processes.
 
-## Setup
+### 2. Prompt Injection Defenses
+I implemented the following 3 primary defenses against adversarial attacks:
+1.  **Input Sanitization**: Scans for and neutralizes patterns like "ignore previous instructions", "you are now", or "### system:" before they reach the model.
+2.  **Instruction-Data Separation**: Uses clear XML-style delimiters (`<retrieved_context>`) to separate instructions from external document data, helping the LLM distinguish between ground truth and potential data-driven injections.
+3.  **System Prompt Hardening**: A strictly defined system persona that explicitly instructs the model to treat retrieved data as untrusted and never reveal its internal instructions. I also implemented **Output Validation** as a 4th layer to catch any leakage if instructions are mentioned in the response.
+
+### 3. Evaluation Metric: Faithfulness
+- **Metric Chosen**: **Faithfulness (Groundedness)**.
+- **Why**: In a regulatory and safety-critical domain like driving rules, the most important factor is that the AI does not hallucinate. Faithfulness measures whether every claim in the answer is directly supported by the retrieved document chunks.
+- **Implementation**: Uses an LLM-as-a-judge approach to verify compliance for every query.
+
+## Test Results & Dashboard
+
+The following summary is generated after running the complete test suite (9 scenarios including normal queries, injections, and off-topic cases):
+
+```text
+==================== DASHBOARD SUMMARY ====================
+Total Queries Processed: 9
+Guardrails Triggered:
+  - INJECTION_ATTEMPT: 3
+  - OFF_TOPIC: 1
+  - PII_DETECTED: 1
+Injection Attempts Blocked: 3
+Average Faithfulness Score (Yes/No ratio): 1.00
+============================================================
+```
+
+## Interesting Findings from Test Results
+- **Resilience to Jailbreaks**: All 3 test attacks (including "ignore instructions" and "print system prompt") were successfully intercepted. The sanitization layer caught the patterns, and the policy guardrail blocked the generation.
+- **High Groundedness**: The system maintained a **1.00 average faithfulness score** during testing, indicating that the use of strict instruction-data separation effectively prevents the model from "making things up" outside the provided context.
+- **Low-Score Precision**: Setting a retrieval threshold (0.1) successfully prevented the model from trying to answer questions about chocolate cake or other irrelevant topics that slipped past the initial off-topic classifier.
+
+## Setup & Usage
 
 ### 1. Install Dependencies
-
 ```bash
 uv pip install -r requirements.txt
 ```
 
 ### 2. Configure API Key
-
 Create a `.env` file:
-
 ```bash
 GOOGLE_API_KEY=your_google_api_key_here
 ```
 
-Get a free API key from: https://aistudio.google.com/app/apikey
-
-### 3. Add Your PDF
-
-Place your PDF in the `data/` directory (e.g., `data/DH-Chapter2.pdf`)
-
-## Usage
-
-### Run Automated Test Queries
-
+### 3. Run Secure Tests
 ```bash
-uv run python test_queries.py
+uv run python secure_rag.py
 ```
-
-Results are saved to `output/results.txt`
-
-### Run Interactive Q&A
-
-```bash
-uv run python rag_system.py
-```
-
-Type your questions and press Enter. Type `quit` to exit.
-
-## How It Works
-
-1. **Document Loading** — PDF is loaded using `PyPDFLoader`
-2. **Text Splitting** — Document is split into overlapping chunks
-3. **Embedding & Storage** — HuggingFace embeddings are created and stored in ChromaDB
-4. **User Query** — User asks a question via command line
-5. **Answer Generation** — `RetrievalQA` chain retrieves relevant chunks and Gemini generates an answer
+This runs the full suite of normal, injection, and off-topic test cases and generates a dashboard summary in `output/results.txt`.
 
 ## Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
 | LLM | Google Gemini 2.5 Flash |
-| Embeddings | HuggingFace `all-MiniLM-L6-v2` (FREE) |
+| Embeddings | HuggingFace `all-MiniLM-L6-v2` |
 | Vector DB | ChromaDB |
-| Framework | LangChain (`RetrievalQA` chain) |
-| PDF Processing | PyPDF |
+| Guardrails | Custom Python logic + Pattern Matching |
+| Evaluation | LLM-as-a-Judge (Faithfulness) |
 
 ## Project Structure
 
 ```
-Assignment2_RAG/
-├── rag_system.py       # Main RAG system with Gemini + RetrievalQA
-├── test_queries.py     # Automated test script (3 queries)
-├── requirements.txt    # Python dependencies
-├── .env                # API key (not committed)
-├── .env.example        # API key template
-├── data/               # PDF documents
-│   └── DH-Chapter2.pdf
-├── output/             # Test results
-│   └── results.txt
+.
+├── rag_system.py       # Core RAG logic (Assignment 2 base)
+├── secure_rag.py       # Security & Evaluation layer (Assignment 3)
+├── data/               # PDF source documents
+├── output/             # Results & Logs
+│   ├── results.txt     # Test report & Dashboard summary
+│   └── guardrails.log  # Trigger alerts
 └── chroma_db/          # Persistent vector store
 ```
+
+
